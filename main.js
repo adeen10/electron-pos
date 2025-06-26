@@ -1,135 +1,154 @@
-// const { app, BrowserWindow, ipcMain } = require('electron');
-// const path = require('path');
-// const fs = require('fs');
-// const crypto = require('crypto');
+const { app, BrowserWindow, ipcMain } = require("electron");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+const db = require("./db/client");
 
-// const usersPath = path.join(__dirname, 'data', 'users.json');
-
-// function createWindow() {
-//   const win = new BrowserWindow({
-//     width: 1200,
-//     height: 700,
-//     webPreferences: {
-//       preload: path.join(__dirname, 'preload.js'),
-//       contextIsolation: true,
-//       nodeIntegration: false,
-//     },
-//   });
-//   win.loadFile('renderer/index.html');
-// }
-
-// app.whenReady().then(createWindow);
-
-// // ========== AUTH HANDLERS ==========
-
-// ipcMain.handle('auth:signup', (event, username, password) => {
-//   let users = [];
-//   if (fs.existsSync(usersPath)) {
-//     users = JSON.parse(fs.readFileSync(usersPath));
-//   }
-//   if (users.some(u => u.username === username)) {
-//     return { success: false, message: 'User already exists' };
-//   }
-//   const hash = crypto.createHash('sha256').update(password).digest('hex');
-//   users.push({ username, passwordHash: hash });
-//   fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
-//   return { success: true, message: 'Signup successful' };
-// });
-
-// ipcMain.handle('auth:login', (event, username, password) => {
-//   if (!fs.existsSync(usersPath)) return { success: false, message: 'No users found' };
-//   const users = JSON.parse(fs.readFileSync(usersPath));
-//   const hash = crypto.createHash('sha256').update(password).digest('hex');
-//   const match = users.find(u => u.username === username && u.passwordHash === hash);
-//   return match
-//     ? { success: true, message: 'Login successful' }
-//     : { success: false, message: 'Invalid credentials' };
-// });
-
-// ipcMain.handle('auth:completeProfile', (event, username, address, regNo) => {
-//   const users = JSON.parse(fs.readFileSync(usersPath));
-//   const user = users.find(u => u.username === username);
-//   if (!user) {
-//     return { success: false, message: 'User not found' };
-//   }
-//   user.address = address;
-//   user.registrationNumber = regNo;
-//   fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
-//   return { success: true, message: 'Profile saved' };
-// });
-
-
-// main.js
-// --------------------------------------------------------------------
-// 1) Core Electron imports FIRST
-// --------------------------------------------------------------------
-const { app, BrowserWindow, ipcMain } = require('electron');
-
-// --------------------------------------------------------------------
-// 2) Node helpers
-// --------------------------------------------------------------------
-const path   = require('path');
-const fs     = require('fs');
-const crypto = require('crypto');
-
-// --------------------------------------------------------------------
-// 3) Load the PDF handler so its ipcMain.handle('generate-pdf', …) exists
-// --------------------------------------------------------------------
-require(path.join(__dirname, 'services', 'pdf_generator.js'));
-
-// --------------------------------------------------------------------
-// 4) Users JSON path
-// --------------------------------------------------------------------
-const usersPath = path.join(__dirname, 'data', 'users.json');
-
-// --------------------------------------------------------------------
-// 5) Create window
-// --------------------------------------------------------------------
-function createWindow () {
+function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 700,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
-    }
+      nodeIntegration: false,
+    },
   });
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
 
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+app.whenReady().then(() => {
+  // ✅ Only load pdf_generator.js after app is ready
+  require(path.join(__dirname, "services", "pdf_generator.js"));
 
-// --------------------------------------------------------------------
-// 6) AUTH IPC HANDLERS
-// --------------------------------------------------------------------
-ipcMain.handle('auth:signup', (_e, user, pass) => {
-  let users = fs.existsSync(usersPath) ? JSON.parse(fs.readFileSync(usersPath)) : [];
-  if (users.some(u => u.username === user)) return { success:false, message:'User already exists' };
-
-  const hash = crypto.createHash('sha256').update(pass).digest('hex');
-  users.push({ username:user, passwordHash:hash });
-  fs.writeFileSync(usersPath, JSON.stringify(users,null,2));
-  return { success:true, message:'Signup successful' };
+  createWindow();
+});
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-ipcMain.handle('auth:login', (_e, user, pass) => {
-  if (!fs.existsSync(usersPath)) return { success:false, message:'No users found' };
-  const users = JSON.parse(fs.readFileSync(usersPath));
-  const hash  = crypto.createHash('sha256').update(pass).digest('hex');
-  return users.find(u => u.username===user && u.passwordHash===hash)
-    ? { success:true, message:'Login successful' }
-    : { success:false, message:'Invalid credentials' };
+ipcMain.handle("auth:signup", async (_e, user, pass) => {
+  try {
+    const hash = crypto.createHash("sha256").update(pass).digest("hex");
+    const res = await db.query(
+      "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id",
+      [user, hash]
+    );
+    return {
+      success: true,
+      message: "Signup successful",
+      userId: res.rows[0].id,
+    };
+  } catch (err) {
+    if (err.code === "23505")
+      return { success: false, message: "User already exists" }; // UNIQUE violation
+    return { success: false, message: "Signup failed: " + err.message };
+  }
 });
 
-ipcMain.handle('auth:completeProfile', (_e, user, addr, reg) => {
-  if (!fs.existsSync(usersPath)) return { success:false, message:'No users found' };
-  const users = JSON.parse(fs.readFileSync(usersPath));
-  const u     = users.find(x => x.username === user);
-  if (!u) return { success:false, message:'User not found' };
-  u.address = addr; u.registrationNumber = reg;
-  fs.writeFileSync(usersPath, JSON.stringify(users,null,2));
-  return { success:true, message:'Profile saved' };
+ipcMain.handle("auth:login", async (_e, user, pass) => {
+  const hash = crypto.createHash("sha256").update(pass).digest("hex");
+  const result = await db.query(
+    "SELECT * FROM users WHERE username=$1 AND password_hash=$2",
+    [user, hash]
+  );
+
+  if (result.rowCount === 1) {
+    return { success: true, message: "Login successful", user: result.rows[0] };
+  } else {
+    return { success: false, message: "Invalid credentials" };
+  }
+});
+
+ipcMain.handle("auth:completeProfile", async (_e, user, addr, reg) => {
+  const result = await db.query(
+    "UPDATE users SET address=$1, registration_number=$2 WHERE username=$3 RETURNING id",
+    [addr, reg, user]
+  );
+
+  if (result.rowCount === 1) {
+    return { success: true, message: "Profile saved" };
+  } else {
+    return { success: false, message: "User not found" };
+  }
+});
+
+// main.js (after you import your `db` client)
+ipcMain.handle("db:get-customers", async () => {
+  const { rows } = await db.query("SELECT * FROM customers ORDER BY name");
+  return rows;
+});
+ipcMain.handle("db:search-customers", async (_e, q) => {
+  const { rows } = await db.query(
+    `SELECT * FROM customers WHERE name ILIKE $1 ORDER BY name LIMIT 10`,
+    [`%${q}%`]
+  );
+  return rows;
+});
+ipcMain.handle("db:get-customer-by-id", async (_e, id) => {
+  const { rows } = await db.query("SELECT * FROM customers WHERE id = $1", [
+    id,
+  ]);
+  return rows[0];
+});
+ipcMain.handle("db:create-customer", async (_e, data) => {
+  const { name, address, registration_number } = data;
+  const { rows } = await db.query(
+    `INSERT INTO customers (name,address,registration_number)
+     VALUES ($1,$2,$3) RETURNING *`,
+    [name, address, registration_number]
+  );
+  return rows[0];
+});
+ipcMain.handle("db:update-customer", async (_e, id, data) => {
+  const { name, address, registration_number } = data;
+  const { rows } = await db.query(
+    `UPDATE customers SET name=$1,address=$2,registration_number=$3
+     WHERE id=$4 RETURNING *`,
+    [name, address, registration_number, id]
+  );
+  return rows[0];
+});
+
+// — PRODUCTS CRUD —
+ipcMain.handle("db:get-products", async () => {
+  const { rows } = await db.query("SELECT * FROM products ORDER BY name");
+  return rows;
+});
+ipcMain.handle("db:search-products", async (_e, q) => {
+  const { rows } = await db.query(
+    `SELECT * FROM products
+       WHERE name ILIKE $1
+       ORDER BY name
+       LIMIT 10`,
+    [`%${q}%`]
+  );
+  return rows;
+});
+ipcMain.handle("db:get-product-by-id", async (_e, id) => {
+  const { rows } = await db.query("SELECT * FROM products WHERE id=$1", [id]);
+  return rows[0];
+});
+ipcMain.handle("db:create-product", async (_e, data) => {
+  const { name, default_price } = data;
+  const { rows } = await db.query(
+    `INSERT INTO products (name, default_price)
+     VALUES ($1,$2) RETURNING *`,
+    [name, default_price]
+  );
+  return rows[0];
+});
+ipcMain.handle("db:update-product", async (_e, id, data) => {
+  const { name, default_price } = data;
+  const { rows } = await db.query(
+    `UPDATE products
+       SET name=$1, default_price=$2
+       WHERE id=$3
+       RETURNING *`,
+    [name, default_price, id]
+  );
+  return rows[0];
 });

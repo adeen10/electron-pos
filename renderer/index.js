@@ -56,19 +56,21 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Build top navigation
-  ["home", "invoice", "sales", "logout"].forEach((page) => {
-    const btn = document.createElement("button");
-    btn.textContent = page.toUpperCase();
-    btn.onclick = () => {
-      if (page === "logout") {
-        localStorage.removeItem("loggedIn");
-        loadView("login");
-      } else {
-        loadView(page);
-      }
-    };
-    nav.appendChild(btn);
-  });
+  ["home", "invoice", "customers", "products", "sales", "logout"].forEach(
+    (page) => {
+      const btn = document.createElement("button");
+      btn.textContent = page.toUpperCase();
+      btn.onclick = () => {
+        if (page === "logout") {
+          localStorage.removeItem("loggedIn");
+          loadView("login");
+        } else {
+          loadView(page);
+        }
+      };
+      nav.appendChild(btn);
+    }
+  );
   document.body.insertBefore(nav, root);
 
   // Initial view
@@ -76,14 +78,46 @@ document.addEventListener("DOMContentLoaded", () => {
   loadView(isLoggedIn ? "home" : "login");
 
   async function loadView(page) {
-    const res = await fetch(`views/${page}.html`);
+    // split “customer-detail?id=5” → base="customer-detail", qs="id=5"
+    const [base, qs] = page.split("?");
+    const res = await fetch(`views/${base}.html`);
     root.innerHTML = await res.text();
 
-    if (page === "login") initLoginLogic();
-    if (page === "signup") initSignupLogic();
-    if (page === "business") initBusinessLogic();
-    if (page === "home") initHomeLogic();
-    if (page === "invoice") initInvoiceLogic();
+    const params = new URLSearchParams(qs);
+
+    switch (base) {
+      case "login":
+        initLoginLogic();
+        break;
+      case "signup":
+        initSignupLogic();
+        break;
+      case "business":
+        initBusinessLogic();
+        break;
+      case "home":
+        initHomeLogic();
+        break;
+      case "invoice":
+        initInvoiceLogic();
+        break;
+      case "customers":
+        initCustomerLogic();
+        break;
+      case "products":
+        initProductLogic();
+        break;
+      case "customer-detail":
+        initCustomerDetailLogic(params.get("id"));
+        break;
+      case "products":
+        initProductLogic();
+        break;
+      case "product-detail":
+        initProductDetailLogic(params.get("id"));
+        break;
+
+    }
   }
 
   function initLoginLogic() {
@@ -335,5 +369,199 @@ document.addEventListener("DOMContentLoaded", () => {
         })),
       };
     }
+  }
+
+  async function initCustomerLogic() {
+    const searchInput = document.getElementById("customer-search");
+    const resultsList = document.getElementById("search-results");
+    const tableBody = document.querySelector("#customers-table tbody");
+    const newBtn = document.getElementById("new-customer-btn");
+
+    // 1️⃣ Load & render all customers
+    async function loadAll() {
+      const customers = await window.customerAPI.getAll();
+      tableBody.innerHTML = customers
+        .map(
+          (c) => `
+        <tr data-id="${c.id}">
+          <td>${c.name}</td>
+          <td>${c.address || ""}</td>
+          <td>${c.registration_number || ""}</td>
+        </tr>`
+        )
+        .join("");
+    }
+    await loadAll();
+
+    // 2️⃣ Click on row → go to detail view
+    tableBody.addEventListener("click", (e) => {
+      const tr = e.target.closest("tr");
+      if (!tr) return;
+      const id = tr.dataset.id;
+      loadView(`customer-detail?id=${id}`);
+    });
+
+    // 3️⃣ Search-as-you-type
+    let lastQ = "";
+    searchInput.addEventListener("input", async () => {
+      const q = searchInput.value.trim();
+      if (!q) {
+        resultsList.innerHTML = "";
+        return;
+      }
+      if (q === lastQ) return;
+      lastQ = q;
+
+      const hits = await window.customerAPI.search(q);
+      resultsList.innerHTML = hits
+        .map((c) => `<li data-id="${c.id}">${c.name}</li>`)
+        .join("");
+    });
+
+    // Click on search result → detail
+    resultsList.addEventListener("click", (e) => {
+      const li = e.target.closest("li");
+      if (!li) return;
+      loadView(`customer-detail?id=${li.dataset.id}`);
+    });
+
+    // 4️⃣ New customer button
+    newBtn.onclick = () => loadView("customer-detail");
+    // (we’ll treat no `?id` as “create new” in the detail page)
+  }
+
+  async function initCustomerDetailLogic(id) {
+    const titleEl = document.getElementById("detail-title");
+    const form = document.getElementById("customer-form");
+    const nameIn = document.getElementById("cust-name");
+    const addrIn = document.getElementById("cust-address");
+    const regIn = document.getElementById("cust-reg");
+    const saveBtn = document.getElementById("save-customer-btn");
+    const cancelBtn = document.getElementById("cancel-customer-btn");
+
+    let isNew = !id;
+
+    if (isNew) {
+      titleEl.textContent = "Create New Customer";
+    } else {
+      titleEl.textContent = "Edit Customer";
+      // load existing data
+      const cust = await window.customerAPI.getById(Number(id));
+      nameIn.value = cust.name || "";
+      addrIn.value = cust.address || "";
+      regIn.value = cust.registration_number || "";
+    }
+
+    // Cancel → back to list
+    cancelBtn.onclick = () => loadView("customers");
+
+    // Save (create or update)
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const data = {
+        name: nameIn.value.trim(),
+        address: addrIn.value.trim(),
+        registration_number: regIn.value.trim(),
+      };
+
+      if (isNew) {
+        await window.customerAPI.create(data);
+      } else {
+        await window.customerAPI.update(Number(id), data);
+      }
+
+      // after save, go back to list and refresh
+      await loadView("customers");
+    };
+  }
+
+  // — List & Search Products —
+  async function initProductLogic() {
+    const searchInput = document.getElementById("product-search");
+    const resultsList = document.getElementById("search-results");
+    const tableBody = document.querySelector("#products-table tbody");
+    const newBtn = document.getElementById("new-product-btn");
+
+    // Load all products
+    async function loadAll() {
+      const products = await window.productAPI.getAll();
+      tableBody.innerHTML = products
+        .map(
+          (p) => `
+        <tr data-id="${p.id}">
+          <td>${p.name}</td>
+          <td>${Number(p.default_price).toFixed(2)}</td>
+          <td>${new Date(p.created_at).toLocaleDateString()}</td>
+        </tr>`
+        )
+        .join("");
+    }
+    await loadAll();
+
+    // click row → detail
+    tableBody.addEventListener("click", (e) => {
+      const tr = e.target.closest("tr");
+      if (!tr) return;
+      loadView(`product-detail?id=${tr.dataset.id}`);
+    });
+
+    // search-as-you-type
+    let lastQ = "";
+    searchInput.addEventListener("input", async () => {
+      const q = searchInput.value.trim();
+      if (!q) {
+        resultsList.innerHTML = "";
+        return;
+      }
+      if (q === lastQ) return;
+      lastQ = q;
+      const hits = await window.productAPI.search(q);
+      resultsList.innerHTML = hits
+        .map((p) => `<li data-id="${p.id}">${p.name}</li>`)
+        .join("");
+    });
+    resultsList.addEventListener("click", (e) => {
+      const li = e.target.closest("li");
+      if (!li) return;
+      loadView(`product-detail?id=${li.dataset.id}`);
+    });
+
+    // New Product
+    newBtn.onclick = () => loadView("product-detail");
+  }
+
+  // — Create/Edit Product —
+  async function initProductDetailLogic(id) {
+    const titleEl = document.getElementById("detail-title");
+    const form = document.getElementById("product-form");
+    const nameIn = document.getElementById("prd-name");
+    const priceIn = document.getElementById("prd-price");
+    const saveBtn = document.getElementById("save-product-btn");
+    const cancelBtn = document.getElementById("cancel-product-btn");
+    const isNew = !id;
+
+    titleEl.textContent = isNew ? "Create New Product" : "Edit Product";
+
+    if (!isNew) {
+      const p = await window.productAPI.getById(Number(id));
+      nameIn.value = p.name;
+      priceIn.value = Number(p.default_price).toFixed(2);
+    }
+
+    cancelBtn.onclick = () => loadView("products");
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const data = {
+        name: nameIn.value.trim(),
+        default_price: parseFloat(priceIn.value),
+      };
+      if (isNew) {
+        await window.productAPI.create(data);
+      } else {
+        await window.productAPI.update(Number(id), data);
+      }
+      await loadView("products");
+    };
   }
 });

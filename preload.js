@@ -1,41 +1,34 @@
-// // preload.js
-// const { contextBridge, ipcRenderer } = require('electron');
-// const path   = require('path');
-// const fs     = require('fs');
-// const crypto = require('crypto');
-
-// const usersPath = path.join(__dirname, 'data', 'users.json');
-
-// // 1️⃣ Auth API: signup, login, completeProfile
-// contextBridge.exposeInMainWorld('authAPI', {
-//   signup: (username, password) =>
-//     ipcRenderer.invoke('auth:signup', username, password),
-
-//   login: (username, password) =>
-//     ipcRenderer.invoke('auth:login', username, password),
-
-//   completeProfile: (username, address, regNo) =>
-//     ipcRenderer.invoke('auth:completeProfile', username, address, regNo),
-// });
-
-// // 2️⃣ Invoice PDF API: generatePDF(invoiceData)
-// contextBridge.exposeInMainWorld('electronAPI', {
-//   generatePDF: (invoiceData) =>
-//     ipcRenderer.invoke('generate-pdf', invoiceData),
-// });
-
-
-// preload.js
 const { contextBridge, ipcRenderer } = require('electron');
 
-// ---------- Auth bridge ----------
 contextBridge.exposeInMainWorld('authAPI', {
   signup:          (u,p) => ipcRenderer.invoke('auth:signup', u, p),
   login:           (u,p) => ipcRenderer.invoke('auth:login',  u, p),
   completeProfile: (u,a,r)=> ipcRenderer.invoke('auth:completeProfile', u, a, r)
 });
 
-// ---------- PDF bridge ----------
+// preload.js
+// … existing authAPI, customerAPI …
+
+contextBridge.exposeInMainWorld('productAPI', {
+  getAll:    () => ipcRenderer.invoke('db:get-products'),
+  search:    (q) => ipcRenderer.invoke('db:search-products', q),
+  getById:   (id)=> ipcRenderer.invoke('db:get-product-by-id', id),
+  create:    (data) => ipcRenderer.invoke('db:create-product', data),
+  update:    (id, data) => ipcRenderer.invoke('db:update-product', id, data),
+});
+
+
+// preload.js (append inside the electronAPI or in its own section)
+contextBridge.exposeInMainWorld('customerAPI', {
+  getAll:        () => ipcRenderer.invoke('db:get-customers'),
+  search:        (q) => ipcRenderer.invoke('db:search-customers', q),
+  getById:       (id)=> ipcRenderer.invoke('db:get-customer-by-id', id),
+  // create & update will be used on the detail page:
+  create:        (data) => ipcRenderer.invoke('db:create-customer', data),
+  update:        (id, data) => ipcRenderer.invoke('db:update-customer', id, data),
+});
+
+
 contextBridge.exposeInMainWorld('electronAPI', {
   generatePDF: (invoice) => ipcRenderer.invoke('generate-pdf', invoice)
 });
