@@ -116,7 +116,6 @@ document.addEventListener("DOMContentLoaded", () => {
       case "product-detail":
         initProductDetailLogic(params.get("id"));
         break;
-
     }
   }
 
@@ -186,12 +185,107 @@ document.addEventListener("DOMContentLoaded", () => {
     ).textContent = `Hello, ${user}! Welcome to FBR Invoice Generator.`;
   }
 
-  function initInvoiceLogic() {
+  async function initInvoiceLogic() {
     const itemsContainer = document.getElementById("items-container");
     const addItemBtn = document.getElementById("add-item-btn");
     const generateBtn = document.getElementById("generate-pdf-btn");
 
-    // Helper to attach click showing tax details
+    // ─── Sales Person (read-only) ─────────────────────────────
+    const sellerIn = document.getElementById("seller-name");
+    const user = localStorage.getItem("username") || "";
+    sellerIn.value = user;
+    sellerIn.disabled = true;
+
+    // ─── Customer Search + Autocomplete ───────────────────────
+    const custIn = document.getElementById("customer-name");
+    const addrIn = document.getElementById("buyer-address");
+    const regIn = document.getElementById("buyer-reg");
+    const resultList = document.createElement("ul");
+    resultList.id = "customer-search-results";
+    resultList.classList.add("search-list");
+    custIn.parentNode.insertBefore(resultList, custIn.nextSibling);
+
+    let lastQ = "";
+    custIn.addEventListener("input", async () => {
+      const q = custIn.value.trim();
+      if (!q) {
+        resultList.innerHTML = "";
+        return;
+      }
+      if (q === lastQ) return;
+      lastQ = q;
+
+      const hits = await window.customerAPI.search(q);
+      resultList.innerHTML =
+        hits.map((c) => `<li data-id="${c.id}">${c.name}</li>`).join("") +
+        `<li data-new="true">➕ Create new customer “${q}”</li>`;
+    });
+
+    // Helper: in‐place modal for creating customer
+    function showCustomerModal(defaultName = "") {
+      return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.style = `
+        position:fixed; inset:0;
+        background:rgba(0,0,0,0.5);
+        display:flex; align-items:center; justify-content:center;
+        z-index:1000;
+      `;
+        const box = document.createElement("div");
+        box.style = `
+        background:#fff; padding:20px; border-radius:8px;
+        width:300px; box-shadow:0 2px 10px rgba(0,0,0,0.2);
+      `;
+        box.innerHTML = `
+        <h3>Create New Customer</h3>
+        <label>Name<br/><input id="modal-name" value="${defaultName}" style="width:100%"/></label><br/>
+        <label>Address<br/><input id="modal-address" style="width:100%"/></label><br/>
+        <label>Reg No.<br/><input id="modal-reg" style="width:100%"/></label><br/><br/>
+        <button id="modal-ok">OK</button>
+        <button id="modal-cancel">Cancel</button>
+      `;
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        box.querySelector("#modal-ok").onclick = () => {
+          const name = box.querySelector("#modal-name").value.trim();
+          const address = box.querySelector("#modal-address").value.trim();
+          const reg = box.querySelector("#modal-reg").value.trim();
+          resolve({ name, address, registration_number: reg });
+          document.body.removeChild(overlay);
+        };
+        box.querySelector("#modal-cancel").onclick = () => {
+          resolve(null);
+          document.body.removeChild(overlay);
+        };
+      });
+    }
+
+    // handle clicks on search results
+    resultList.addEventListener("click", async (e) => {
+      const li = e.target.closest("li");
+      if (!li) return;
+      if (li.dataset.id) {
+        // existing
+        const c = await window.customerAPI.getById(Number(li.dataset.id));
+        custIn.value = c.name;
+        addrIn.value = c.address || "";
+        regIn.value = c.registration_number || "";
+      } else if (li.dataset.new) {
+        // create new inline
+        const defaultName = custIn.value.trim();
+        const data = await showCustomerModal(defaultName);
+        if (data && data.name) {
+          const c = await window.customerAPI.create(data);
+          custIn.value = c.name;
+          addrIn.value = c.address;
+          regIn.value = c.registration_number;
+        }
+      }
+      resultList.innerHTML = "";
+    });
+
+    // ─── Items & Totals ────────────────────────────────────────
     function attachLabelClick(row, selector, dataName, dataPctName, labelText) {
       const span = row.querySelector(selector);
       span.style.cursor = "pointer";
@@ -202,52 +296,62 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
+    function clampInputs(row) {
+      row.querySelectorAll("input[type=number]").forEach((input) => {
+        input.min = 0;
+        input.addEventListener("input", () => {
+          if (parseFloat(input.value) < 0 || isNaN(input.value)) {
+            input.value = 0;
+          }
+          updateRow(row);
+        });
+      });
+    }
+
     addItemBtn.onclick = () => addItemRow();
     generateBtn.onclick = () => {
       const invoiceData = collectInvoiceData();
       window.electronAPI.generatePDF(invoiceData);
     };
 
+    // first row
     addItemRow();
 
     function addItemRow() {
       const row = document.createElement("div");
       row.classList.add("invoice-item");
       row.innerHTML = `
-        <input class="item-name" placeholder="Item Name">
-        <input class="qty"       type="number" value="1">
-        <input class="rate"      type="number" placeholder="Rate">
-        <input class="discount"  type="number" value="0">
-        <input class="tax"       type="number" value="0">
-        <input type="checkbox" class="extra-tax-checkbox"   title="Enable extra tax">
-        <input type="checkbox" class="further-tax-checkbox" title="Enable further tax">
-        <span class="price-excl">$0.00</span>
-        <span class="tax-amt">$0.00</span>
-        <span class="total-price">$0.00</span>
-        <button class="delete-btn">❌</button>
-      `;
+      <input class="item-name" placeholder="Item Name">
+      <input class="qty"       type="number" value="1" min="0">
+      <input class="rate"      type="number" placeholder="Rate" min="0">
+      <input class="discount"  type="number" value="0" min="0">
+      <input class="tax"       type="number" value="0" min="0">
+      <input type="checkbox" class="extra-tax-checkbox"   title="Enable extra tax">
+      <input type="checkbox" class="further-tax-checkbox" title="Enable further tax">
+      <span class="price-excl">$0.00</span>
+      <span class="tax-amt">$0.00</span>
+      <span class="total-price">$0.00</span>
+      <button class="delete-btn">❌</button>
+    `;
       itemsContainer.appendChild(row);
 
-      // Recalculate on base field change
-      ["item-name", "qty", "rate", "discount", "tax"].forEach((cls) =>
-        row
-          .querySelector(`.${cls}`)
-          .addEventListener("input", () => updateRow(row))
-      );
+      clampInputs(row);
 
-      // Delete
+      row
+        .querySelector(".item-name")
+        .addEventListener("input", () => updateRow(row));
+
       row.querySelector(".delete-btn").addEventListener("click", () => {
         row.remove();
         updateSummary();
       });
 
-      // Extra tax
       row
         .querySelector(".extra-tax-checkbox")
         .addEventListener("change", async (e) => {
           if (e.target.checked) {
             const res = await showInputModal("Extra Tax Details");
-            if (res && res.name && res.pct) {
+            if (res?.name && res?.pct) {
               row.dataset.extraTaxName = res.name;
               row.dataset.extraTaxPct = parseFloat(res.pct) || 0;
             } else {
@@ -260,13 +364,12 @@ document.addEventListener("DOMContentLoaded", () => {
           updateRow(row);
         });
 
-      // Further tax
       row
         .querySelector(".further-tax-checkbox")
         .addEventListener("change", async (e) => {
           if (e.target.checked) {
             const res = await showInputModal("Further Tax Details");
-            if (res && res.name && res.pct) {
+            if (res?.name && res?.pct) {
               row.dataset.furtherTaxName = res.name;
               row.dataset.furtherTaxPct = parseFloat(res.pct) || 0;
             } else {
@@ -278,6 +381,8 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           updateRow(row);
         });
+
+      updateRow(row);
     }
 
     function updateRow(row) {
@@ -285,7 +390,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const rate = parseFloat(row.querySelector(".rate").value) || 0;
       const discP = parseFloat(row.querySelector(".discount").value) || 0;
       const taxP = parseFloat(row.querySelector(".tax").value) || 0;
-
       const extraPct = parseFloat(row.dataset.extraTaxPct) || 0;
       const furtherPct = parseFloat(row.dataset.furtherTaxPct) || 0;
 
