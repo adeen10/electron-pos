@@ -1,0 +1,97 @@
+/* Global & Navigation */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background: #f9f9f9;
+}
+
+nav {
+  display: flex;
+  background-color: #0055a5;
+  padding: 10px;
+}
+
+nav button {
+  color: white;
+  background: transparent;
+  border: none;
+  margin-right: 20px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+nav button:hover {
+  text-decoration: underline;
+}
+
+#root {
+  padding: 20px;
+}
+
+/* Table Header & Rows */
+.item-header,
+.invoice-item {
+  display: grid;
+  grid-template-columns:
+    repeat(7, 1fr)    /* Item, Qty, Rate, Disc%, Tax%, Extra, Further */
+    repeat(3, 1fr)    /* Price Excl., Tax Amt, Total Price */
+    auto;             /* Action (delete) */
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* Inputs & Text in Rows */
+.invoice-item input,
+.invoice-item span {
+  padding: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Form rows for labels + inputs, aligned in a 2-column grid */
+.form-row {
+  display: grid;
+  grid-template-columns: 150px 1fr; /* 150px for label, rest for all inputs */
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* Make every input fill the right-hand column exactly */
+.form-row input {
+  width: 50%;
+  padding: 6px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+/* Center numeric/spans */
+.invoice-item .price-excl,
+.invoice-item .tax-amt,
+.invoice-item .total-price {
+  text-align: center;
+}
+
+/* Buttons in Rows */
+.invoice-item .delete-btn,
+.invoice-item .add-extra-btn,
+.invoice-item .add-further-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+/* Summary Section */
+#summary {
+  margin-top: 20px;
+}
+
+#summary p {
+  margin: 4px 0;
+}
+
+#summary h3 {
+  margin: 8px 0;
+}

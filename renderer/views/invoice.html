@@ -1,0 +1,47 @@
+<div>
+  <h2>Invoice Page</h2>
+
+  <div class="form-row">
+    <label for="seller-name">Seller Name</label>
+    <input id="seller-name" placeholder="e.g. Acme Corp" />
+  </div>
+  <div class="form-row">
+    <label for="customer-name">Customer Name</label>
+    <input id="customer-name" placeholder="e.g. John Doe" />
+  </div>
+  <div class="form-row">
+    <label for="buyer-address">Buyer Address</label>
+    <input id="buyer-address" placeholder="e.g. 123 Main St" />
+  </div>
+  <div class="form-row">
+    <label for="buyer-reg">Buyer Reg. No.</label>
+    <input id="buyer-reg" placeholder="e.g. BR-45678" />
+  </div>
+  <div class="form-row">
+    <label for="date">Date</label>
+    <input id="date" type="date" value="2025-06-24" />
+  </div>
+  <br />
+
+  <!-- Item table header -->
+  <div id="items-wrapper">
+    <div class="item-header">
+      <span>Item</span><span>Qty</span><span>Rate</span><span>Disc %</span>
+      <span>Tax %</span><span>Extra Tax</span><span>Further Tax</span>
+      <span>Price Excl.</span><span>Tax Amt</span><span>Total Price</span>
+      <span>Action</span>
+    </div>
+    <div id="items-container"></div>
+  </div>
+
+  <button id="add-item-btn">Add Another Item</button><br /><br />
+  <button id="generate-pdf-btn">Generate PDF</button>
+
+  <!-- Totals summary -->
+  <div id="summary">
+    <p>Subtotal: $<span id="sum-subtotal">0.00</span></p>
+    <p>Total Discounts: $<span id="sum-disc">0.00</span></p>
+    <p>Total Taxes: $<span id="sum-taxes">0.00</span></p>
+    <h3>Final Amount: $<span id="sum-final">0.00</span></h3>
+  </div>
+</div>
