@@ -285,6 +285,47 @@ document.addEventListener("DOMContentLoaded", () => {
       resultList.innerHTML = "";
     });
 
+    function showProductModal(defaultName = "") {
+      return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.style = `
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 1000;
+      `;
+        const box = document.createElement("div");
+        box.style = `
+        background: white; padding: 20px; border-radius: 8px;
+        width: 300px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      `;
+        box.innerHTML = `
+        <h3>Create New Product</h3>
+        <label>Name<br/>
+          <input id="modal-pname" value="${defaultName}" style="width:100%"/>
+        </label><br/>
+        <label>Default Price<br/>
+          <input id="modal-pprice" type="number" step="0.01" style="width:100%"/>
+        </label><br/><br/>
+        <button id="modal-ok">OK</button>
+        <button id="modal-cancel">Cancel</button>
+      `;
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        box.querySelector("#modal-ok").onclick = () => {
+          const name = box.querySelector("#modal-pname").value.trim();
+          const price = parseFloat(box.querySelector("#modal-pprice").value);
+          resolve({ name, default_price: price });
+          document.body.removeChild(overlay);
+        };
+        box.querySelector("#modal-cancel").onclick = () => {
+          resolve(null);
+          document.body.removeChild(overlay);
+        };
+      });
+    }
+
     // ─── Items & Totals ────────────────────────────────────────
     function attachLabelClick(row, selector, dataName, dataPctName, labelText) {
       const span = row.querySelector(selector);
@@ -321,31 +362,99 @@ document.addEventListener("DOMContentLoaded", () => {
       const row = document.createElement("div");
       row.classList.add("invoice-item");
       row.innerHTML = `
-      <input class="item-name" placeholder="Item Name">
-      <input class="qty"       type="number" value="1" min="0">
-      <input class="rate"      type="number" placeholder="Rate" min="0">
-      <input class="discount"  type="number" value="0" min="0">
-      <input class="tax"       type="number" value="0" min="0">
-      <input type="checkbox" class="extra-tax-checkbox"   title="Enable extra tax">
-      <input type="checkbox" class="further-tax-checkbox" title="Enable further tax">
-      <span class="price-excl">$0.00</span>
-      <span class="tax-amt">$0.00</span>
-      <span class="total-price">$0.00</span>
-      <button class="delete-btn">❌</button>
+      <div class="item-cell">
+        <input class="item-name" placeholder="Item Name"/>
+      </div>
+      <div class="item-cell">
+        <input class="qty" type="number" value="1" min="0"/>
+      </div>
+      <div class="item-cell">
+        <input class="rate" type="number" placeholder="Rate" min="0"/>
+      </div>
+      <div class="item-cell">
+        <input class="discount" type="number" value="0" min="0"/>
+      </div>
+      <div class="item-cell">
+        <input class="tax" type="number" value="0" min="0"/>
+      </div>
+      <div class="item-cell">
+        <input type="checkbox" class="extra-tax-checkbox"/>
+      </div>
+      <div class="item-cell">
+        <input type="checkbox" class="further-tax-checkbox"/>
+      </div>
+      <div class="item-cell"><span class="price-excl">$0.00</span></div>
+      <div class="item-cell"><span class="tax-amt">$0.00</span></div>
+      <div class="item-cell"><span class="total-price">$0.00</span></div>
+      <div class="item-cell"><button class="delete-btn">❌</button></div>
     `;
       itemsContainer.appendChild(row);
 
+      // 1) Clamp negatives
       clampInputs(row);
 
-      row
-        .querySelector(".item-name")
-        .addEventListener("input", () => updateRow(row));
+      // 2) Product autocomplete
+      const nameIn = row.querySelector(".item-name");
+      const rateIn = row.querySelector(".rate");
+      const prodList = document.createElement("ul");
+      prodList.classList.add("search-list");
+      nameIn.parentNode.insertBefore(prodList, nameIn.nextSibling);
 
+      let lastPQ = "";
+      nameIn.addEventListener("input", async () => {
+        const q = nameIn.value.trim();
+        if (!q) {
+          prodList.innerHTML = "";
+          return;
+        }
+        if (q === lastPQ) return;
+        lastPQ = q;
+        const hits = await window.productAPI.search(q);
+        prodList.innerHTML =
+          hits
+            .map(
+              (p) =>
+                `<li data-id="${p.id}" data-price="${p.default_price}">${p.name}</li>`
+            )
+            .join("") + `<li data-new="true">➕ Create new product “${q}”</li>`;
+      });
+
+      prodList.addEventListener("click", async (e) => {
+        const li = e.target.closest("li");
+        if (!li) return;
+        if (li.dataset.id) {
+          // existing product
+          nameIn.value = li.textContent;
+          rateIn.value = Number(li.dataset.price).toFixed(2);
+          updateRow(row);
+        } else if (li.dataset.new) {
+          // new product modal
+          const defaultName = nameIn.value.trim();
+          const data = await showProductModal(defaultName);
+          if (data && data.name) {
+            const p = await window.productAPI.create(data);
+            nameIn.value = p.name;
+            rateIn.value = Number(p.default_price).toFixed(2);
+            updateRow(row);
+          }
+        }
+        prodList.innerHTML = "";
+      });
+
+      // 3) Other inputs recalc
+      ["qty", "discount", "tax"].forEach((cls) => {
+        row
+          .querySelector(`.${cls}`)
+          .addEventListener("input", () => updateRow(row));
+      });
+
+      // 4) Delete
       row.querySelector(".delete-btn").addEventListener("click", () => {
         row.remove();
         updateSummary();
       });
 
+      // 5) Extra/Further tax toggles
       row
         .querySelector(".extra-tax-checkbox")
         .addEventListener("change", async (e) => {
@@ -382,6 +491,7 @@ document.addEventListener("DOMContentLoaded", () => {
           updateRow(row);
         });
 
+      // 6) Initial calc
       updateRow(row);
     }
 
